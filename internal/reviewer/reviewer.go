@@ -48,31 +48,23 @@ func (e *ReviewEngine) CreateModel(conf *config.BaseConfig) {
 		BaseURL: conf.APIServer,
 		Model:   conf.Model,
 	}
-	fmt.Println("tell me: creating chat model...")
 	chatModel, err := openai.NewChatModel(e.ctx, modelConf)
 	if err != nil {
-		fmt.Printf("tell me: failed to create chat model: %v\n", err)
 		return
 	}
-	fmt.Println("tell me: chat model created successfully")
 	e.chatModel = chatModel
 }
 
 func (e *ReviewEngine) Run() {
-	fmt.Println("tell me: ReviewEngine.Run() started")
-	fmt.Printf("tell me: review path = %s\n", e.reviewPath)
-
-	fmt.Println("tell me: getting git diff...")
 	diffs, err := e.gitDiff()
 	if err != nil {
 		fmt.Printf("get git diff failed: err= %v \n", err)
 		return
 	}
-	fmt.Printf("tell me: found %d files with changes\n", len(diffs))
+
 	var wg sync.WaitGroup
 	maxWorkers := 10
 	semaphore := make(chan struct{}, maxWorkers)
-	fmt.Printf("tell me: starting concurrent review with %d workers\n", maxWorkers)
 	for _, diff := range diffs {
 		wg.Add(1)
 		go func(d gitDiff) {
@@ -94,20 +86,15 @@ type gitDiff struct {
 }
 
 func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
-	fmt.Println("tell me: starting gitDiff()")
 	workPath, err := e.getWorkPath()
 	if err != nil {
-		fmt.Printf("tell me: getWorkPath failed: %v\n", err)
 		return nil, err
 	}
-	fmt.Printf("tell me: working in path: %s\n", workPath)
 
 	repo, err := git.PlainOpen(workPath)
 	if err != nil {
-		fmt.Printf("tell me: failed to open git repo at %s: %v\n", workPath, err)
 		return nil, fmt.Errorf("failed to open repo: workPath = %s, err= %v,", workPath, err)
 	}
-	fmt.Println("tell me: git repo opened successfully")
 
 	// 获取HEAD commit
 	ref, err := repo.Head()
@@ -124,13 +111,11 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get work tree, err= %v", err)
 	}
-	fmt.Println("tell me: got worktree successfully")
 
 	status, err := worktree.Status()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status, err= %v", err)
 	}
-	fmt.Printf("tell me: got git status, found %d files\n", len(status))
 
 	// 获取HEAD的tree
 	headTree, err := commit.Tree()
@@ -144,10 +129,8 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 		if file == "go.sum" || file == "go.mod" || strings.Contains(file, "README") {
 			continue
 		}
-		fmt.Printf("tell me: checking file %s, staging: %v, worktree: %v\n", file, fileStatus.Staging, fileStatus.Worktree)
 		// 1. 新增文件（未跟踪）
 		if fileStatus.Staging == git.Untracked || fileStatus.Worktree == git.Untracked {
-			fmt.Printf("tell me: found untracked file: %s\n", file)
 			content, err := e.getFileContent(filepath.Join(workPath, file))
 			if err != nil {
 				fmt.Printf("failed to get change path: path= %s, err= %v \n", file, err)
@@ -157,11 +140,9 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 				FilePath: file,
 				Content:  content,
 			})
-			fmt.Printf("tell me: added file to diffs: %s (content length: %d)\n", file, len(content))
 		}
 		// 2. 已修改的文件（需要获取diff）
 		if fileStatus.Staging == git.Modified || fileStatus.Worktree == git.Modified {
-			fmt.Printf("tell me: found modified file: %s\n", file)
 			diffContent, err := e.getModifiedFileDiff(repo, headTree, file, workPath)
 			if err != nil {
 				fmt.Printf("failed to get diff for file: path= %s, err= %v \n", file, err)
@@ -175,7 +156,6 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 
 		// 3. 已添加到暂存区的新文件
 		if fileStatus.Staging == git.Added {
-			fmt.Printf("tell me: found added file: %s\n", file)
 			content, err := e.getFileContent(filepath.Join(workPath, file))
 			if err != nil {
 				fmt.Printf("failed to get file content: path= %s, err= %v \n", file, err)
@@ -188,7 +168,6 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 		}
 	}
 
-	fmt.Printf("tell me: gitDiff completed, returning %d diffs\n", len(diffs))
 	return diffs, nil
 
 }
@@ -259,11 +238,8 @@ func (e *ReviewEngine) generateProfessionalDiff(filePath, oldContent, newContent
 }
 
 func (e *ReviewEngine) reviewerSignleFile(d gitDiff) {
-	fmt.Printf("tell me: reviewing single file: %s\n", d.FilePath)
 	g := compose.NewGraph[map[string]any, *schema.Message]()
-
 	ext := filepath.Ext(d.FilePath)
-	fmt.Printf("tell me: detected file extension: %s\n", ext)
 
 	systemTpl := fmt.Sprintf("你是一位  %s 研发专家，现在你将对用户给出的代码变更内容给出对应的code reviewer 结论。我需要你在结论中输出原有代码相关问题，你的评审建议，与修改方案.请将整体输出控制在200字内", ext)
 
