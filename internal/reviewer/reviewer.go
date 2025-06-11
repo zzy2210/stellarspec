@@ -3,8 +3,10 @@ package reviewer
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	config "stellarspec/internal/model/conf"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,8 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 const (
@@ -38,11 +42,12 @@ func NewReviewEngine(ctx context.Context, path string) *ReviewEngine {
 	}
 }
 
-func (e *ReviewEngine) Run() {
-	fmt.Println("tell me: ReviewEngine.Run() started")
-	fmt.Printf("tell me: review path = %s\n", e.reviewPath)
-
-	modelConf := &openai.ChatModelConfig{}
+func (e *ReviewEngine) CreateModel(conf *config.BaseConfig) {
+	modelConf := &openai.ChatModelConfig{
+		APIKey:  conf.Key,
+		BaseURL: conf.APIServer,
+		Model:   conf.Model,
+	}
 	fmt.Println("tell me: creating chat model...")
 	chatModel, err := openai.NewChatModel(e.ctx, modelConf)
 	if err != nil {
@@ -51,6 +56,11 @@ func (e *ReviewEngine) Run() {
 	}
 	fmt.Println("tell me: chat model created successfully")
 	e.chatModel = chatModel
+}
+
+func (e *ReviewEngine) Run() {
+	fmt.Println("tell me: ReviewEngine.Run() started")
+	fmt.Printf("tell me: review path = %s\n", e.reviewPath)
 
 	fmt.Println("tell me: getting git diff...")
 	diffs, err := e.gitDiff()
@@ -99,6 +109,17 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 	}
 	fmt.Println("tell me: git repo opened successfully")
 
+	// 获取HEAD commit
+	ref, err := repo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HEAD: %v", err)
+	}
+
+	commit, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit: %v", err)
+	}
+
 	worktree, err := repo.Worktree()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get work tree, err= %v", err)
@@ -111,11 +132,20 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 	}
 	fmt.Printf("tell me: got git status, found %d files\n", len(status))
 
+	// 获取HEAD的tree
+	headTree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HEAD tree: %v", err)
+	}
+
 	diffs := []gitDiff{}
 
 	for file, fileStatus := range status {
+		if file == "go.sum" || file == "go.mod" || strings.Contains(file, "README") {
+			continue
+		}
 		fmt.Printf("tell me: checking file %s, staging: %v, worktree: %v\n", file, fileStatus.Staging, fileStatus.Worktree)
-		// 新增
+		// 1. 新增文件（未跟踪）
 		if fileStatus.Staging == git.Untracked || fileStatus.Worktree == git.Untracked {
 			fmt.Printf("tell me: found untracked file: %s\n", file)
 			content, err := e.getFileContent(filepath.Join(workPath, file))
@@ -128,6 +158,33 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 				Content:  content,
 			})
 			fmt.Printf("tell me: added file to diffs: %s (content length: %d)\n", file, len(content))
+		}
+		// 2. 已修改的文件（需要获取diff）
+		if fileStatus.Staging == git.Modified || fileStatus.Worktree == git.Modified {
+			fmt.Printf("tell me: found modified file: %s\n", file)
+			diffContent, err := e.getModifiedFileDiff(repo, headTree, file, workPath)
+			if err != nil {
+				fmt.Printf("failed to get diff for file: path= %s, err= %v \n", file, err)
+				continue
+			}
+			diffs = append(diffs, gitDiff{
+				FilePath: file,
+				Content:  diffContent,
+			})
+		}
+
+		// 3. 已添加到暂存区的新文件
+		if fileStatus.Staging == git.Added {
+			fmt.Printf("tell me: found added file: %s\n", file)
+			content, err := e.getFileContent(filepath.Join(workPath, file))
+			if err != nil {
+				fmt.Printf("failed to get file content: path= %s, err= %v \n", file, err)
+				continue
+			}
+			diffs = append(diffs, gitDiff{
+				FilePath: file,
+				Content:  content,
+			})
 		}
 	}
 
@@ -164,6 +221,43 @@ func (e *ReviewEngine) getFileContent(filePath string) (string, error) {
 	return string(content), nil
 }
 
+func (e *ReviewEngine) getModifiedFileDiff(repo *git.Repository, headTree *object.Tree, filePath, workPath string) (string, error) {
+	// 获取HEAD中的文件内容
+	var oldContent string
+	if entry, err := headTree.FindEntry(filePath); err == nil {
+		blob, err := repo.BlobObject(entry.Hash)
+		if err != nil {
+			return "", fmt.Errorf("failed to get blob: %v", err)
+		}
+
+		reader, err := blob.Reader()
+		if err != nil {
+			return "", fmt.Errorf("failed to get blob reader: %v", err)
+		}
+		defer reader.Close()
+
+		content, err := io.ReadAll(reader)
+		if err != nil {
+			return "", fmt.Errorf("failed to read blob content: %v", err)
+		}
+		oldContent = string(content)
+	}
+
+	// 获取当前工作区的文件内容
+	newContent, err := e.getFileContent(filepath.Join(workPath, filePath))
+	if err != nil {
+		return "", fmt.Errorf("failed to get current file content: %v", err)
+	}
+	return e.generateProfessionalDiff(filePath, oldContent, newContent), nil
+
+}
+
+func (e *ReviewEngine) generateProfessionalDiff(filePath, oldContent, newContent string) string {
+	dmp := diffmatchpatch.New()
+	diffs := dmp.DiffMain(oldContent, newContent, false)
+	return dmp.DiffPrettyText(diffs)
+}
+
 func (e *ReviewEngine) reviewerSignleFile(d gitDiff) {
 	fmt.Printf("tell me: reviewing single file: %s\n", d.FilePath)
 	g := compose.NewGraph[map[string]any, *schema.Message]()
@@ -171,7 +265,7 @@ func (e *ReviewEngine) reviewerSignleFile(d gitDiff) {
 	ext := filepath.Ext(d.FilePath)
 	fmt.Printf("tell me: detected file extension: %s\n", ext)
 
-	systemTpl := fmt.Sprintf("你是一位  %s 研发专家，现在你将对用户给出的代码变更内容给出对应的code reviewer 结论。我需要你在结论中输出原有代码相关问题，你的评审建议，与修改方案", ext)
+	systemTpl := fmt.Sprintf("你是一位  %s 研发专家，现在你将对用户给出的代码变更内容给出对应的code reviewer 结论。我需要你在结论中输出原有代码相关问题，你的评审建议，与修改方案.请将整体输出控制在200字内", ext)
 
 	chatTpl := prompt.FromMessages(schema.FString,
 		schema.SystemMessage(systemTpl),

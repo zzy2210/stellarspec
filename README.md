@@ -4,11 +4,11 @@
 ## 使用说明
 
 ### 配置
-`stellarspec --set apiserver="https://api.siliconflow.cn/v1/"`
+`stellarspec --set-apiserver https://api.siliconflow.cn/v1/ `
 设置调用apiserver地址，这将会在 $HOME/.stellarspec/ 下创建conf文件 
-`stellarspec --set model="xxx"`
+`stellarspec --set-model xxx `
 设置llm 模型
-`stellarspec --set key="sk-xxxxx"`
+`stellarspec --set-key sk-xxxxx `
 设置密钥
 
 当然，你可以保持多个conf文件，在需要的时候直接调用
