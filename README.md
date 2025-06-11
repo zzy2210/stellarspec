@@ -18,26 +18,36 @@
 
 ### 安装
 
+推荐使用 `Makefile`进行构建：
+
 ```bash
-# 从源码编译
+# 克隆仓库
 git clone https://github.com/your-username/stellarspec.git
 cd stellarspec
-go build -o stellarspec cmd/stellarspec.go
+
+# 构建项目 (将生成名为 stellar 的可执行文件)
+make build
+```
+
+构建完成后，你会在项目根目录下找到名为 `stellar` 的可执行文件。你可以将其复制到你的 `PATH` 环境变量所包含的目录中，以便全局使用，例如：
+
+```bash
+sudo cp stellar /usr/local/bin/
 ```
 
 ### 配置
 
-首次使用需要配置 API 服务器、模型和密钥：
+首次使用需要配置 API 服务器、模型和密钥。请将 `stellar` 替换为你实际的二进制文件名（如果已更改）。
 
 ```bash
 # 设置 API 服务器地址
-stellarspec --set-apiserver https://api.siliconflow.cn/v1/
+stellar --set-apiserver https://api.siliconflow.cn/v1/
 
 # 设置 LLM 模型
-stellarspec --set-model deepseek-chat
+stellar --set-model deepseek-chat
 
 # 设置 API 密钥
-stellarspec --set-key sk-xxxxxxxxxxxxx
+stellar --set-key sk-xxxxxxxxxxxxx
 ```
 
 配置文件将自动保存到 `$HOME/.stellarspec/cnf`
@@ -46,16 +56,16 @@ stellarspec --set-key sk-xxxxxxxxxxxxx
 
 ```bash
 # 审查当前目录的所有变更
-stellarspec review
+stellar review
 
 # 审查指定文件
-stellarspec review main.go
+stellar review main.go
 
 # 审查指定目录
-stellarspec review ./src
+stellar review ./src
 
-# 查看帮助
-stellarspec --help
+# 查看帮助 (或者使用 make run)
+stellar --help
 ```
 
 审查完成后，将在当前目录生成 `code-review.md` 报告文件。
@@ -66,10 +76,10 @@ stellarspec --help
 
 ```bash
 # 使用自定义配置文件
-stellarspec --conf /path/to/custom/config review
+stellar --conf /path/to/custom/config review
 
 # 一次性设置多个配置项
-stellarspec --set-apiserver https://api.openai.com/v1 \
+stellar --set-apiserver https://api.openai.com/v1 \
            --set-model gpt-4 \
            --set-key sk-xxxxxx
 ```
@@ -78,19 +88,19 @@ stellarspec --set-apiserver https://api.openai.com/v1 \
 
 ```bash
 # 指定并发数量（默认 10）
-stellarspec review . --max-pool 20
+stellar review . --max-pool 20
 
 # 审查特定 commit 的变更
-stellarspec review --commit-id 1bacd3f
+stellar review --commit-id 1bacd3f
 
 # 启用思维链模式，查看详细分析过程
-stellarspec review --thinking-chain
+stellar review --thinking-chain
 
 # 使用自定义 prompt 模板
-stellarspec review --prompt-file custom_prompt.txt
+stellar review --prompt-file custom_prompt.txt
 
 # 组合使用多个选项
-stellarspec review main.go --thinking-chain --max-pool 5
+stellar review main.go --thinking-chain --max-pool 5
 ```
 
 ### 支持的文件类型
@@ -118,7 +128,7 @@ StellarSpec 支持多文件并发审查，显著提升大型项目的处理速�
 
 ```bash
 # 设置并发数为 20（适合大型项目）
-stellarspec review . --max-pool 20
+stellar review . --max-pool 20
 ```
 
 ### 思维链分析
@@ -126,7 +136,7 @@ stellarspec review . --max-pool 20
 启用思维链模式可以查看 AI 模型的详细分析过程：
 
 ```bash
-stellarspec review --thinking-chain
+stellar review --thinking-chain
 ```
 
 ### 自定义 Prompt
@@ -138,7 +148,7 @@ stellarspec review --thinking-chain
 echo "重点关注安全性和性能问题" > security_prompt.txt
 
 # 使用自定义 prompt
-stellarspec review --prompt-file security_prompt.txt
+stellar review --prompt-file security_prompt.txt
 ```
 
 ## 📊 审查报告
@@ -217,6 +227,8 @@ stellarspec/
 - [Cobra](https://github.com/spf13/cobra) - Go CLI 库
 - [go-git](https://github.com/go-git/go-git) - Git 实现
 - [go-diff](https://github.com/sergi/go-diff) - 差异比较库
+
+- [ethereal14](https://github.com/ethereal14) - my good friend
 
 ## 📞 支持
 
