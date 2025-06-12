@@ -85,6 +85,7 @@ stellar --set-apiserver https://api.openai.com/v1 \
 ```
 
 ### 审查选项
+-- 这部分的功能因为设计设计更改，暂未提交
 
 ```bash
 # 指定并发数量（默认 10）
