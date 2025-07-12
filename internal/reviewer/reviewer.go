@@ -131,11 +131,14 @@ func (e *ReviewEngine) getCommitDiff(repo *git.Repository) ([]gitDiff, error) {
 	if commit.NumParents() > 0 {
 		parentCommit, err := commit.Parent(0)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get parent commit: %v", err)
-		}
-		parentTree, err = parentCommit.Tree()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get parent tree: %v", err)
+			// 如果无法获取父 commit，可能是初始 commit，我们就与空 tree 比较
+			fmt.Printf("Warning: Could not get parent commit (this might be an initial commit): %v\n", err)
+			parentTree = nil
+		} else {
+			parentTree, err = parentCommit.Tree()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get parent tree: %v", err)
+			}
 		}
 	}
 
@@ -390,12 +393,30 @@ func (e *ReviewEngine) formatReviewResult(filePath string, result any, language 
 		content = fmt.Sprintf("%v", result)
 	}
 
-	return fmt.Sprintf(`
-## 文件审查报告
+	// 构建报告头部
+	var header string
+	if e.commitID != "" {
+		header = fmt.Sprintf(`## 文件审查报告
 
 **文件路径**: %s  
 **文件类型**: %s  
-**审查时间**: %s
+**审查时间**: %s  
+**审查目标**: Commit %s
+
+### 审查结果
+
+%s
+
+---
+
+`, filePath, language, timestamp, e.commitID, content)
+	} else {
+		header = fmt.Sprintf(`## 文件审查报告
+
+**文件路径**: %s  
+**文件类型**: %s  
+**审查时间**: %s  
+**审查目标**: 工作区变更
 
 ### 审查结果
 
@@ -404,6 +425,9 @@ func (e *ReviewEngine) formatReviewResult(filePath string, result any, language 
 ---
 
 `, filePath, language, timestamp, content)
+	}
+
+	return header
 }
 
 // 获取文件语言类型的辅助函数

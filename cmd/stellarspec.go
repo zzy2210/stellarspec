@@ -131,7 +131,10 @@ var reviewCmd = &cobra.Command{
 		engine := reviewer.NewReviewEngine(context.Background(), reviewPath, commitID)
 		baseConf, err := config.LoadFile(configPath)
 		if err != nil {
-			fmt.Println("load config file failed: err= %v", err)
+			fmt.Printf("load config file failed: err= %v\n", err)
+			fmt.Println("Please configure API settings first using:")
+			fmt.Println("  stellar --set-apiserver <url> --set-model <model> --set-key <key>")
+			return
 		}
 		engine.CreateModel(baseConf)
 		engine.Run()
