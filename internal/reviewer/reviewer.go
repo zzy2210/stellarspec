@@ -16,6 +16,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
@@ -29,16 +30,18 @@ type ReviewEngine struct {
 	ctx context.Context
 
 	reviewPath string
+	commitID   string
 	chatModel  *openai.ChatModel
 
 	// 文件锁
 	mutex sync.Mutex
 }
 
-func NewReviewEngine(ctx context.Context, path string) *ReviewEngine {
+func NewReviewEngine(ctx context.Context, path string, commitID string) *ReviewEngine {
 	return &ReviewEngine{
 		ctx:        ctx,
 		reviewPath: path,
+		commitID:   commitID,
 	}
 }
 
@@ -96,6 +99,83 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 		return nil, fmt.Errorf("failed to open repo: workPath = %s, err= %v,", workPath, err)
 	}
 
+	// 如果指定了 commitID，则审查指定 commit 的变更
+	if e.commitID != "" {
+		return e.getCommitDiff(repo)
+	}
+
+	// 否则审查工作区变更（原有逻辑）
+	return e.getWorkingTreeDiff(repo, workPath)
+}
+
+func (e *ReviewEngine) getCommitDiff(repo *git.Repository) ([]gitDiff, error) {
+	// 解析指定的 commit
+	commitHash, err := repo.ResolveRevision(plumbing.Revision(e.commitID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve commit %s: %v", e.commitID, err)
+	}
+
+	commit, err := repo.CommitObject(*commitHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit object %s: %v", e.commitID, err)
+	}
+
+	// 获取 commit 的 tree
+	commitTree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit tree: %v", err)
+	}
+
+	var parentTree *object.Tree
+	// 获取父 commit 的 tree（如果存在）
+	if commit.NumParents() > 0 {
+		parentCommit, err := commit.Parent(0)
+		if err != nil {
+			// 如果无法获取父 commit，可能是初始 commit，我们就与空 tree 比较
+			fmt.Printf("Warning: Could not get parent commit (this might be an initial commit): %v\n", err)
+			parentTree = nil
+		} else {
+			parentTree, err = parentCommit.Tree()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get parent tree: %v", err)
+			}
+		}
+	}
+
+	// 比较两个 tree，获取变更
+	changes, err := object.DiffTree(parentTree, commitTree)
+	if err != nil {
+		return nil, fmt.Errorf("failed to diff trees: %v", err)
+	}
+
+	diffs := []gitDiff{}
+	for _, change := range changes {
+		// 跳过一些不需要审查的文件
+		fileName := change.To.Name
+		if fileName == "" {
+			fileName = change.From.Name
+		}
+		if fileName == "go.sum" || fileName == "go.mod" || strings.Contains(fileName, "README") {
+			continue
+		}
+
+		// 生成 patch
+		patch, err := change.Patch()
+		if err != nil {
+			fmt.Printf("failed to get patch for file: path= %s, err= %v \n", fileName, err)
+			continue
+		}
+
+		diffs = append(diffs, gitDiff{
+			FilePath: fileName,
+			Content:  patch.String(),
+		})
+	}
+
+	return diffs, nil
+}
+
+func (e *ReviewEngine) getWorkingTreeDiff(repo *git.Repository, workPath string) ([]gitDiff, error) {
 	// 获取HEAD commit
 	ref, err := repo.Head()
 	if err != nil {
@@ -169,7 +249,6 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 	}
 
 	return diffs, nil
-
 }
 
 func (e *ReviewEngine) getWorkPath() (string, error) {
@@ -314,12 +393,30 @@ func (e *ReviewEngine) formatReviewResult(filePath string, result any, language 
 		content = fmt.Sprintf("%v", result)
 	}
 
-	return fmt.Sprintf(`
-## 文件审查报告
+	// 构建报告头部
+	var header string
+	if e.commitID != "" {
+		header = fmt.Sprintf(`## 文件审查报告
 
 **文件路径**: %s  
 **文件类型**: %s  
-**审查时间**: %s
+**审查时间**: %s  
+**审查目标**: Commit %s
+
+### 审查结果
+
+%s
+
+---
+
+`, filePath, language, timestamp, e.commitID, content)
+	} else {
+		header = fmt.Sprintf(`## 文件审查报告
+
+**文件路径**: %s  
+**文件类型**: %s  
+**审查时间**: %s  
+**审查目标**: 工作区变更
 
 ### 审查结果
 
@@ -328,6 +425,9 @@ func (e *ReviewEngine) formatReviewResult(filePath string, result any, language 
 ---
 
 `, filePath, language, timestamp, content)
+	}
+
+	return header
 }
 
 // 获取文件语言类型的辅助函数
