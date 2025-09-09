@@ -128,13 +128,14 @@ var reviewCmd = &cobra.Command{
 			configPath = confPath
 		}
 
-		engine := reviewer.NewReviewEngine(context.Background(), reviewPath)
-		baseConf, err := config.LoadFile(configPath)
-		if err != nil {
-			fmt.Println("load config file failed: err= %v", err)
-		}
-		engine.CreateModel(baseConf)
-		engine.Run()
+	engine := reviewer.NewReviewEngine(context.Background(), reviewPath)
+	baseConf, err := config.LoadFile(configPath)
+	if err != nil {
+		fmt.Printf("load config file failed: err= %v\n", err)
+		return
+	}
+	engine.CreateModel(baseConf)
+	engine.Run()
 	},
 }
 

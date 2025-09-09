@@ -1,23 +1,24 @@
 package reviewer
 
 import (
-	"context"
-	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	config "stellarspec/internal/model/conf"
-	"strings"
-	"sync"
-	"time"
+    "context"
+    "fmt"
+    "io"
+    "os"
+    "path/filepath"
+    config "stellarspec/internal/model/conf"
+    "strings"
+    "sync"
+    "time"
 
-	"github.com/cloudwego/eino-ext/components/model/openai"
-	"github.com/cloudwego/eino/components/prompt"
-	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/schema"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/sergi/go-diff/diffmatchpatch"
+    "github.com/cloudwego/eino-ext/components/model/openai"
+    "github.com/cloudwego/eino/components/prompt"
+    "github.com/cloudwego/eino/compose"
+    "github.com/cloudwego/eino/schema"
+    "github.com/fatih/color"
+    "github.com/go-git/go-git/v5"
+    "github.com/go-git/go-git/v5/plumbing/object"
+    "github.com/sergi/go-diff/diffmatchpatch"
 )
 
 const (
@@ -56,11 +57,11 @@ func (e *ReviewEngine) CreateModel(conf *config.BaseConfig) {
 }
 
 func (e *ReviewEngine) Run() {
-	diffs, err := e.gitDiff()
-	if err != nil {
-		fmt.Printf("get git diff failed: err= %v \n", err)
-		return
-	}
+    diffs, err := e.gitDiff()
+    if err != nil {
+        color.Red("get git diff failed: err= %v\n", err)
+        return
+    }
 
 	var wg sync.WaitGroup
 	maxWorkers := 10
@@ -131,42 +132,45 @@ func (e *ReviewEngine) gitDiff() ([]gitDiff, error) {
 		}
 		// 1. 新增文件（未跟踪）
 		if fileStatus.Staging == git.Untracked || fileStatus.Worktree == git.Untracked {
-			content, err := e.getFileContent(filepath.Join(workPath, file))
-			if err != nil {
-				fmt.Printf("failed to get change path: path= %s, err= %v \n", file, err)
-				continue
-			}
-			diffs = append(diffs, gitDiff{
-				FilePath: file,
-				Content:  content,
-			})
-		}
-		// 2. 已修改的文件（需要获取diff）
-		if fileStatus.Staging == git.Modified || fileStatus.Worktree == git.Modified {
-			diffContent, err := e.getModifiedFileDiff(repo, headTree, file, workPath)
-			if err != nil {
-				fmt.Printf("failed to get diff for file: path= %s, err= %v \n", file, err)
-				continue
-			}
-			diffs = append(diffs, gitDiff{
-				FilePath: file,
-				Content:  diffContent,
-			})
-		}
+            content, err := e.getFileContent(filepath.Join(workPath, file))
+            if err != nil {
+                color.Red("failed to get change path: path=%s, err=%v\n", file, err)
+                continue
+            }
+            diffs = append(diffs, gitDiff{
+                FilePath: file,
+                Content:  content,
+            })
+            color.Yellow("Δ add: %s\n", filepath.Join(workPath, file))
+        }
+        // 2. 已修改的文件（需要获取diff）
+        if fileStatus.Staging == git.Modified || fileStatus.Worktree == git.Modified {
+            diffContent, err := e.getModifiedFileDiff(repo, headTree, file, workPath)
+            if err != nil {
+                color.Red("failed to get diff for file: path=%s, err=%v\n", file, err)
+                continue
+            }
+            diffs = append(diffs, gitDiff{
+                FilePath: file,
+                Content:  diffContent,
+            })
+            color.Yellow("Δ mod: %s\n", filepath.Join(workPath, file))
+        }
 
 		// 3. 已添加到暂存区的新文件
 		if fileStatus.Staging == git.Added {
-			content, err := e.getFileContent(filepath.Join(workPath, file))
-			if err != nil {
-				fmt.Printf("failed to get file content: path= %s, err= %v \n", file, err)
-				continue
-			}
-			diffs = append(diffs, gitDiff{
-				FilePath: file,
-				Content:  content,
-			})
-		}
-	}
+            content, err := e.getFileContent(filepath.Join(workPath, file))
+            if err != nil {
+                color.Red("failed to get file content: path=%s, err=%v\n", file, err)
+                continue
+            }
+            diffs = append(diffs, gitDiff{
+                FilePath: file,
+                Content:  content,
+            })
+            color.Yellow("Δ staged: %s\n", filepath.Join(workPath, file))
+        }
+    }
 
 	return diffs, nil
 
@@ -238,8 +242,10 @@ func (e *ReviewEngine) generateProfessionalDiff(filePath, oldContent, newContent
 }
 
 func (e *ReviewEngine) reviewerSignleFile(d gitDiff) {
-	g := compose.NewGraph[map[string]any, *schema.Message]()
-	ext := filepath.Ext(d.FilePath)
+    color.Cyan("▶ review: %s\n", d.FilePath)
+    startTime := time.Now()
+    g := compose.NewGraph[map[string]any, *schema.Message]()
+    ext := filepath.Ext(d.FilePath)
 
 	systemTpl := fmt.Sprintf("你是一位  %s 研发专家，现在你将对用户给出的代码变更内容给出对应的code reviewer 结论。我需要你在结论中输出原有代码相关问题，你的评审建议，与修改方案.请将整体输出控制在200字内", ext)
 
@@ -258,21 +264,24 @@ func (e *ReviewEngine) reviewerSignleFile(d gitDiff) {
 		panic(err)
 	}
 
-	ret, err := r.Invoke(e.ctx, map[string]any{
-		"message_histories": []*schema.Message{},
-		"user_query":        d.Content,
-	})
-	if err != nil {
-		fmt.Printf("invoke failed: err= %v \n", err)
-		return
-	}
+    ret, err := r.Invoke(e.ctx, map[string]any{
+        "message_histories": []*schema.Message{},
+        "user_query":        d.Content,
+    })
+    if err != nil {
+        color.Red("invoke failed: err=%v\n", err)
+        return
+    }
 
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
-	if err := e.writeReviewToFile(d.FilePath, ret, ext); err != nil {
-		fmt.Printf("write review faile: err= %v", err)
-		return
-	}
+    if err := e.writeReviewToFile(d.FilePath, ret, ext); err != nil {
+        color.Red("write review failed: err=%v\n", err)
+        return
+    }
+    // 计算执行时间
+    duration := time.Since(startTime)
+    color.Green("✔ reviewed: %s in %v\n", d.FilePath, duration)
 
 }
 
