@@ -4,7 +4,7 @@ GOFLAGS := $(GOFLAGS) -v
 LDFLAGS := -s -w # 缩小二进制文件体积
 
 # 项目配置
-BINARY_NAME :=  stellar 
+BINARY_NAME := stellar
 CMD_PATH := ./cmd/stellarspec.go
 BUILD_DIR := build
 
@@ -33,9 +33,9 @@ run: build
 
 
 install: build
-    @echo "Installing $(BINARY_NAME) to /usr/local/bin..."
-    sudo cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/
-    @echo "$(BINARY_NAME) installed successfully."
+	@echo "Installing $(BINARY_NAME) to /usr/local/bin..."
+	sudo cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/
+	@echo "$(BINARY_NAME) installed successfully."
 
 
 help:
