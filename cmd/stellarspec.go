@@ -17,6 +17,7 @@ var (
 	apiServer     string
 	model         string
 	key           string
+	language      string
 	confPath      string
 	maxPool       int
 	commitID      string
@@ -33,7 +34,7 @@ var rootCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// 如果只是设置配置，不需要额外操作
 		// 配置已经在 PersistentPreRun 中处理了
-		if apiServer != "" || model != "" || key != "" {
+		if apiServer != "" || model != "" || key != "" || language != "" {
 			fmt.Println("配置设置完成")
 			return
 		}
@@ -110,6 +111,20 @@ func handleConfigFlags() {
 		}
 		fmt.Printf("API 密钥已设置\n")
 	}
+
+	// 如果有设置语言
+	if language != "" {
+		// 验证语言参数
+		if language != "zh" && language != "en" {
+			fmt.Printf("不支持的语言: %s (仅支持 zh 或 en)\n", language)
+			os.Exit(1)
+		}
+		if err := config.SaveLanguage(language, configPath); err != nil {
+			fmt.Printf("保存语言配置失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("语言已设置为: %s\n", language)
+	}
 }
 
 var reviewCmd = &cobra.Command{
@@ -128,14 +143,33 @@ var reviewCmd = &cobra.Command{
 			configPath = confPath
 		}
 
-	engine := reviewer.NewReviewEngine(context.Background(), reviewPath)
-	baseConf, err := config.LoadFile(configPath)
-	if err != nil {
-		fmt.Printf("load config file failed: err= %v\n", err)
-		return
-	}
-	engine.CreateModel(baseConf)
-	engine.Run()
+		// 加载配置文件获取语言设置
+		baseConf, err := config.LoadFile(configPath)
+		if err != nil {
+			fmt.Printf("load config file failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		// 组装引擎配置（仅映射，不改变原有未使用 flag 的行为）
+		engCfg := reviewer.EngineConfig{
+			ReviewPath:    reviewPath,
+			MaxWorkers:    maxPool,       // 先映射，不强制在引擎中使用
+			CommitID:      commitID,      // 映射但暂不生效
+			PromptPath:    promptFile,    // 映射但暂不生效
+			ThinkingChain: thinkingChain, // 映射但暂不生效
+			OutputFile:    "code-review.md",
+			Language:      baseConf.Language,
+		}
+
+		engine := reviewer.NewEngine(context.Background(), engCfg)
+		if err := engine.CreateModel(baseConf); err != nil {
+			fmt.Printf("create model failed: %v\n", err)
+			os.Exit(1)
+		}
+		if err := engine.Run(); err != nil {
+			fmt.Printf("run review failed: %v\n", err)
+			os.Exit(1)
+		}
 	},
 }
 
@@ -144,6 +178,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&apiServer, "set-apiserver", "", "设置API服务器地址")
 	rootCmd.PersistentFlags().StringVar(&model, "set-model", "", "设置LLM模型")
 	rootCmd.PersistentFlags().StringVar(&key, "set-key", "", "设置API密钥")
+	rootCmd.PersistentFlags().StringVar(&language, "set-lang", "", "设置语言 (zh/en)")
 	rootCmd.PersistentFlags().StringVar(&confPath, "conf", "", "指定配置文件路径")
 
 	// 本地 flags (只对特定命令生效)
