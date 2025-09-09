@@ -11,6 +11,7 @@ type BaseConfig struct {
 	APIServer string
 	Model     string
 	Key       string
+	Language  string
 }
 
 func LoadFile(path string) (*BaseConfig, error) {
@@ -23,6 +24,12 @@ func LoadFile(path string) (*BaseConfig, error) {
 	config.APIServer = cfg.Section("").Key("APIServer").String()
 	config.Model = cfg.Section("").Key("Model").String()
 	config.Key = cfg.Section("").Key("Key").String()
+	
+	// 读取语言配置，默认为 zh
+	config.Language = cfg.Section("").Key("Language").String()
+	if config.Language == "" {
+		config.Language = "zh"
+	}
 
 	return config, nil
 
@@ -86,6 +93,24 @@ func SaveModel(model string, path string) error {
 	}
 
 	cfg.Section("").Key("Model").SetValue(model)
+
+	if err := cfg.SaveTo(path); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SaveLanguage(language string, path string) error {
+	if err := ensureConfigFile(path); err != nil {
+		return fmt.Errorf("ensure config path failed: err= %v", err)
+	}
+	cfg, err := ini.Load(path)
+	if err != nil {
+		return fmt.Errorf("load config file failed: err= %v", err)
+	}
+
+	cfg.Section("").Key("Language").SetValue(language)
 
 	if err := cfg.SaveTo(path); err != nil {
 		return err
